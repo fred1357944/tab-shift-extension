@@ -4,7 +4,7 @@
 
 **Privacy policy:** https://fred1357944.github.io/tab-shift-extension/privacy.html
 
-**版本：** 1.0.0 · Manifest V3
+**版本：** 1.0.1 · Manifest V3 · Chrome on macOS, Windows, and Linux
 
 ## 功能
 
@@ -59,4 +59,6 @@
 
 Load unpacked from `chrome://extensions` → Developer mode → Load unpacked. Rebind at `chrome://extensions/shortcuts`.
 
-**Caveats:** Chrome allows at most 4 default shortcuts in the manifest — extract / next-window must be bound at chrome://extensions/shortcuts. ⇧⌘←/→ may conflict with text selection when focus is in an input field. Ctrl+⌘ arrow keys are intentionally unused. Cmd+Shift+N is not used.
+Works on Chrome for macOS, Windows, and Linux (same `chrome.tabs` / `chrome.windows` APIs; Windows/Linux defaults are Ctrl+Shift+arrows).
+
+**Caveats:** Chrome allows at most 4 default shortcuts in the manifest — extract / next-window must be bound at chrome://extensions/shortcuts. ⇧⌘←/→ and Ctrl+Shift+Left/Right may conflict with text selection when focus is in an input field. Ctrl+⌘ arrow keys are intentionally unused. Cmd+Shift+N is not used.

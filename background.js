@@ -1,63 +1,61 @@
 /**
  * Tab Shift — service worker (Manifest V3)
- * iTerm-like shortcuts to rearrange tabs / move between windows.
- * Pinned and unpinned tabs are separate strips.
+ * Uses only chrome.tabs / chrome.windows / chrome.commands.
+ * Same code path on Chrome for macOS, Windows, and Linux.
  */
 
-async function getActiveTab() {
+async function resolveTab(eventTab) {
+  if (eventTab?.id != null && eventTab.index != null && eventTab.windowId != null) {
+    return eventTab;
+  }
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  return tab || null;
+  return tab ?? null;
 }
 
-/** Bounds of the pinned or unpinned strip that `tab` belongs to in `tabs` (sorted by index). */
 function stripBounds(tabs, tab) {
-  const pinned = !!tab.pinned;
-  const group = tabs.filter((t) => !!t.pinned === pinned);
-  if (group.length === 0) {
+  const pinned = Boolean(tab.pinned);
+  const indices = tabs
+    .filter((t) => Boolean(t.pinned) === pinned)
+    .map((t) => t.index);
+  if (indices.length === 0) {
     return { min: tab.index, max: tab.index };
   }
-  const indices = group.map((t) => t.index);
   return { min: Math.min(...indices), max: Math.max(...indices) };
 }
 
-async function moveWithinStrip(delta) {
-  const tab = await getActiveTab();
-  if (!tab || tab.index == null || tab.windowId == null) return;
-
-  const tabs = await chrome.tabs.query({ windowId: tab.windowId });
+async function tabsInWindow(windowId) {
+  const tabs = await chrome.tabs.query({ windowId });
   tabs.sort((a, b) => a.index - b.index);
+  return tabs;
+}
+
+async function moveWithinStrip(tab, delta) {
+  if (tab.index == null || tab.windowId == null) return;
+  const tabs = await tabsInWindow(tab.windowId);
   const { min, max } = stripBounds(tabs, tab);
   const target = Math.max(min, Math.min(max, tab.index + delta));
   if (target === tab.index) return;
   await chrome.tabs.move(tab.id, { index: target });
 }
 
-async function moveToStripEdge(toStart) {
-  const tab = await getActiveTab();
-  if (!tab || tab.index == null || tab.windowId == null) return;
-
-  const tabs = await chrome.tabs.query({ windowId: tab.windowId });
-  tabs.sort((a, b) => a.index - b.index);
+async function moveToStripEdge(tab, toStart) {
+  if (tab.index == null || tab.windowId == null) return;
+  const tabs = await tabsInWindow(tab.windowId);
   const { min, max } = stripBounds(tabs, tab);
   const target = toStart ? min : max;
   if (target === tab.index) return;
   await chrome.tabs.move(tab.id, { index: target });
 }
 
-async function extractToNewWindow() {
-  const tab = await getActiveTab();
-  if (!tab) return;
+async function extractToNewWindow(tab) {
   await chrome.windows.create({ tabId: tab.id, focused: true });
 }
 
-async function moveToNextWindow() {
-  const tab = await getActiveTab();
-  if (!tab || tab.windowId == null) return;
+async function moveToNextWindow(tab) {
+  if (tab.windowId == null) return;
 
   const windows = await chrome.windows.getAll({ windowTypes: ["normal"] });
   if (!windows.length) return;
-
-  // Stable order by id
   windows.sort((a, b) => a.id - b.id);
 
   if (windows.length === 1) {
@@ -72,36 +70,41 @@ async function moveToNextWindow() {
     return;
   }
 
-  // Append to end of target window (-1). Pinned state is preserved by Chrome.
   await chrome.tabs.move(tab.id, { windowId: next.id, index: -1 });
   await chrome.windows.update(next.id, { focused: true });
   await chrome.tabs.update(tab.id, { active: true });
 }
 
-chrome.commands.onCommand.addListener((command) => {
-  const run = async () => {
-    switch (command) {
-      case "move-tab-left":
-        await moveWithinStrip(-1);
-        break;
-      case "move-tab-right":
-        await moveWithinStrip(1);
-        break;
-      case "move-tab-to-start":
-        await moveToStripEdge(true);
-        break;
-      case "move-tab-to-end":
-        await moveToStripEdge(false);
-        break;
-      case "extract-tab-new-window":
-        await extractToNewWindow();
-        break;
-      case "move-tab-next-window":
-        await moveToNextWindow();
-        break;
-      default:
-        break;
-    }
-  };
-  run().catch((err) => console.error("Tab Shift command failed:", command, err));
-});
+async function handleCommand(command, eventTab) {
+  const tab = await resolveTab(eventTab);
+  if (tab?.id == null) return;
+
+  switch (command) {
+    case "move-tab-left":
+      await moveWithinStrip(tab, -1);
+      break;
+    case "move-tab-right":
+      await moveWithinStrip(tab, 1);
+      break;
+    case "move-tab-to-start":
+      await moveToStripEdge(tab, true);
+      break;
+    case "move-tab-to-end":
+      await moveToStripEdge(tab, false);
+      break;
+    case "extract-tab-new-window":
+      await extractToNewWindow(tab);
+      break;
+    case "move-tab-next-window":
+      await moveToNextWindow(tab);
+      break;
+    default:
+      break;
+  }
+}
+
+chrome.commands.onCommand.addListener((command, tab) =>
+  handleCommand(command, tab).catch((err) => {
+    console.error("Tab Shift command failed:", command, err);
+  }),
+);
